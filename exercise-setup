@@ -1,0 +1,9 @@
+#!/bin/bash
+
+rm -f db.sqlite3
+rm -r flaregun/api/migrations
+
+python manage.py makemigrations
+python manage.py migrate
+
+python exercise-setup.py
