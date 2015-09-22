@@ -1,17 +1,231 @@
 <!DOCTYPE html>
 <html>
 <head>
-	<title>Where ya at?</title>
+    <title>Where ya at?</title>
+    <!-- much of this from: http://bl.ocks.org/mbostock/899711 -->
 
-	<meta charset="utf-8">
-	<style>
-	</style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no"/>
+    <script type="text/javascript" src="http://maps.google.com/maps/api/js?sensor=true"></script>
+    <script type="text/javascript" src="http://mbostock.github.io/d3/d3.js?1.29.1"></script>
+
+    <link href='https://fonts.googleapis.com/css?family=Open+Sans' rel='stylesheet' type='text/css'>
+    <style type="text/css">
+        html, body, #map {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            font-family: 'Open Sans', sans-serif;;
+        }
+        #map {
+            position: relative;
+        }
+
+        /* individual abs pos svg are used for each marker */
+        .stations,
+        .stations svg {
+            position: absolute;
+        }
+        .stations svg {
+            width: 20px;
+            height: 20px;
+            font: 16px sans-serif;
+        }
+        .stations svg.selected,
+        .stations svg.mouseover {
+            width: 80px;
+            background: white;
+            border-radius: 3px;
+            z-index: 100;
+        }
+
+        /* map marker and click-point */
+        .stations svg circle {
+            fill: midnightblue;
+            stroke: transparent;
+            stroke-width: 1.5px;
+        }
+        .stations circle:hover {
+            cursor: pointer;
+        }
+        .stations svg.selected circle {
+            fill: black;
+            stroke: white;
+        }
+        .stations svg.mouseover circle {
+            fill: blue;
+            stroke: white;
+        }
+
+        /* profile popover */
+        .user-profile {
+            position: absolute;
+            right: 0px;
+            width: 50%;
+            min-height: 64px;
+            margin: 16px 48px 16px 0px;
+            background: white;
+            border: 1px solid grey;
+            border-radius: 3px;
+            padding: 16px;
+        }
+        .user-profile header {
+            margin-bottom: 0.7em;
+            font-size: 120%;
+            font-variant: small-caps;
+            text-decoration: underline;
+        }
+        .user-profile article p {
+            font-size: 80%;
+            margin-bottom: 0.7em;
+        }
+
+    </style>
 
 </head>
 <body>
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js"></script>
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/1.6.19/topojson.min.js"></script>
-	<script>
-	</script>
+    <figure id="map"></figure>
+    <script type="text/javascript">
+        // TODO: seperate into modules and use dj's static to load
+        // Create the Google Map…
+        var center = new google.maps.LatLng(37.0, -95.0),
+            map = new google.maps.Map(d3.select("#map").node(), {
+                zoom: 4,
+                center: center,
+                mapTypeId: google.maps.MapTypeId.ROADMAP
+            });
+
+        // from: http://stackoverflow.com/questions/3473367/how-to-offset-the-center-of-a-google-maps-api-v3-in-pixels
+        // recenters a gmap using given offsets
+        function map_recenter(latlng,offsetx,offsety) {
+            var point1 = map.getProjection().fromLatLngToPoint(
+                (latlng instanceof google.maps.LatLng) ? latlng : map.getCenter()
+            );
+            var point2 = new google.maps.Point(
+                ( (typeof(offsetx) == 'number' ? offsetx : 0) / Math.pow(2, map.getZoom()) ) || 0,
+                ( (typeof(offsety) == 'number' ? offsety : 0) / Math.pow(2, map.getZoom()) ) || 0
+            );
+            map.setCenter(map.getProjection().fromPointToLatLng(new google.maps.Point(
+                point1.x - point2.x,
+                point1.y + point2.y
+            )));
+        }
+
+        // use d3 to select a node's parentElement
+        function d3parent(d3element) {
+            return d3.select(d3.select(d3element).node().parentElement);
+        }
+
+        // when the user clicks a location marker, fetch that user's data
+        // and when the data comes back: recenter, show the profile, and visually differentiate the location
+        function markerClickHandler(d, i) {
+            var circleNode = this;
+            d3.json( "/users/" + d.user.id + "/", function(response) {
+                var dataLatLng = new google.maps.LatLng(d.lat, d.lon),
+                    quarterMapWid = d3.select("#map").node().clientWidth / 4,
+                    profile = d3.select("#map")
+                        .append("aside").classed("user-profile", true);
+
+                // recenter: half profile, half map: center halfway across map (1/4)
+                map_recenter(dataLatLng, -quarterMapWid, 0);
+                profile.node().innerHTML = buildProfile(response);
+                d3parent(circleNode).classed("selected", true);
+            });
+        }
+
+        // TODO: better as a fragment from server (since it will be used elsewhere)
+        // TODO: needs html escaping
+        function buildProfile(userData) {
+            return [
+                '<header>', userData.username, '</header>',
+                '<article>',
+                    '<p class="favorite-drink">Favorite drink: ', userData.profile.favorite_drink, '</p>',
+                    '<p class="about">', userData.profile.about, '</p>',
+                '</article>'
+            ].join('');
+        }
+
+        // when the user clicks away, remove the profile and marker differentiation
+        function clickAway() {
+            d3.select("svg.selected").classed("selected", false);
+            d3.select(".user-profile").remove();
+        }
+        d3.select("#map").on("click", clickAway);
+
+        // TODO: the d3 layer complicates things here needlessly - use gmaps markers instead
+        // Load the location data. When the data comes back, create an overlay.
+        d3.json("/locations/", function(data) {
+            data = data.results;
+            var overlay = new google.maps.OverlayView();
+
+            // Add the container when the overlay is added to the map.
+            overlay.onAdd = function() {
+                var layer = d3.select(this.getPanes().overlayLayer).append("div")
+                    .attr("class", "stations");
+
+                // Draw each marker as a separate SVG element.
+                // We could use a single SVG, but what size would it have?
+                overlay.draw = function() {
+                    // HACK: (z-index fighting) there are two layers over the stations layer, we need to alter
+                    // the z-index of the stations' container and that container's container
+                    // these are re-added each draw
+                    d3.selectAll([
+                        layer.node().parentElement,
+                        layer.node().parentElement.parentElement
+                    ]).style("z-index", 100001);
+
+                    var projection = this.getProjection(),
+                        padding = 10;
+
+                    var marker = layer.selectAll("svg")
+                        .data(data);
+
+                    var exiting = marker.exit()
+                        .remove();
+
+                    var entered = marker.enter()
+                        .append("svg:svg")
+                        .each(transform)
+                        .attr("class", "marker");
+
+                    var existing = marker.each(transform);
+
+                    var circle = entered.append("svg:circle")
+                        .attr("r", 8)
+                        .attr("cx", padding)
+                        .attr("cy", padding);
+
+                    // add username
+                    var text = existing.append("svg:text")
+                        .attr("x", padding + 10)
+                        .attr("y", padding)
+                        .attr("dy", ".31em")
+                        .text(function(d) { return d.user.username; });
+
+                    function transform(d) {
+                        d = new google.maps.LatLng(d.lat, d.lon);
+                        d = projection.fromLatLngToDivPixel(d);
+                        return d3.select(this)
+                            .style("left", (d.x - padding) + "px")
+                            .style("top", (d.y - padding) + "px");
+                    }
+
+                    circle.on("click", markerClickHandler);
+                    circle.on("mouseover", function(){
+                        d3parent(this).classed("mouseover", true);
+                    });
+                    // restore previous styles by removing inlines
+                    circle.on("mouseout", function(){
+                        d3parent(this).classed("mouseover", false);
+                    });
+                };
+            };
+
+            // Bind our overlay to the map…
+            overlay.setMap(map);
+        });
+
+    </script>
 </body>
 </html>

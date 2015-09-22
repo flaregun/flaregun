@@ -4,6 +4,15 @@ from rest_framework import serializers
 
 
 class UserLocationSerializer(serializers.ModelSerializer):
+
+    class NestedUserSerializer(serializers.ModelSerializer):
+        """For nested display inside location json"""
+        class Meta:
+            model = models.User
+            fields = ('id', 'username')
+
+    user = NestedUserSerializer(allow_null=True, read_only=True)
+
     class Meta:
         model = models.UserLocation
         fields = ('id', 'url', 'lat', 'lon', 'user')

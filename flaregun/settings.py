@@ -44,7 +44,8 @@ INSTALLED_APPS = (
 
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.IsAdminUser',),
-    'PAGE_SIZE': 10
+    # TODO: allow page_size_query_param: www.django-rest-framework.org/api-guide/pagination/#pagenumberpagination
+    'PAGE_SIZE': 1000
 }
 
 MIDDLEWARE_CLASSES = (
